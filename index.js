@@ -22,7 +22,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
     const userCollection = client.db("HouseDB").collection("users");
     const bookingCollection = client.db("HouseDB").collection("bookings");
@@ -58,13 +58,14 @@ async function run() {
       const password = req.query.password;
 
       const filter = { email: email };
-      const findUser = await userCollection.findOne(filter);
-      if (findUser) {
-        if (findUser.password == password) {
-          return res.send({ message: "success" });
+      const result = await userCollection.findOne(filter);
+      if (result) {
+        if (result.password == password) {
+          return res.send({ message: "success",user: {email: email, name: result.firstName+' '+result.lastName} });
         }
         res.send({ message: "failed" });
       }
+      res.send({message: 'failed'})
     });
 
     // user related API
@@ -152,6 +153,13 @@ async function run() {
         .skip(page * limit)
         .limit(limit)
         .toArray();
+      res.send(result);
+    });
+
+    app.get("/singleHouse/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = {_id : new ObjectId(id)}
+      const result = await houseCollection.findOne(filter);
       res.send(result);
     });
 
