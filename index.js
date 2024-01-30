@@ -27,6 +27,8 @@ async function run() {
     const userCollection = client.db("HouseDB").collection("users");
     const bookingCollection = client.db("HouseDB").collection("bookings");
     const houseCollection = client.db("HouseDB").collection("houses");
+    const brokerCollection = client.db("HouseDB").collection("brokers");
+    const clientCollection = client.db("HouseDB").collection("client");
 
     // MiddleWere
     const verifyToken = (req, res, next) => {
@@ -194,10 +196,29 @@ async function run() {
       res.send(result);
     });
 
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // Brokers API
+    app.get("/brokers", async (req, res) => {
+      const result = await brokerCollection.find().toArray();
+      res.send(result);
+    });
+
+    // Client API
+    app.get("/clients", async (req, res) => {
+      const result = await clientCollection.find().toArray();
+      res.send(result);
+    });
+
+
+
+
+
+
+
+
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
