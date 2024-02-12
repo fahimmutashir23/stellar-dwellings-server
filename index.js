@@ -3,12 +3,21 @@ const app = express();
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const jwt = require("jsonwebtoken");
+const multer = require('multer');
 require("dotenv").config();
+const cloudinary = require('cloudinary');
+          
 
 const port = process.env.PORT || 5000;
 
 app.use(express.json());
 app.use(cors());
+
+cloudinary.v2.config({ 
+  cloud_name: process.env.CLOUDINARY_NAME,  
+  api_key: process.env.CLOUDINARY_API_KEY, 
+  api_secret: process.env.CLOUDINARY_API_SECRET 
+});
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.pyhg6t2.mongodb.net/?retryWrites=true&w=majority`;
 
@@ -29,6 +38,7 @@ async function run() {
     const houseCollection = client.db("HouseDB").collection("houses");
     const brokerCollection = client.db("HouseDB").collection("brokers");
     const clientCollection = client.db("HouseDB").collection("client");
+    const fileCollection = client.db("HouseDB").collection("files");
 
     // MiddleWere
     const verifyToken = (req, res, next) => {
@@ -208,7 +218,41 @@ async function run() {
       res.send(result);
     });
 
+    // Upload File Api
 
+    const storage = multer.diskStorage({
+      destination: function (req, file, cb) {
+        cb(null, './uploads')
+      },
+      filename: function (req, file, cb) {
+        const uniqueSuffix = Date.now()
+        cb(null, uniqueSuffix +'-'+ file.originalname)
+      }
+    })
+    const upload = multer({ storage: storage })
+
+    
+    app.post("/fileUpload", upload.single('image'), async (req, res) => {
+
+      cloudinary.uploader.upload(req.file.path, async (result) => {
+        if(result.error){
+          res.send(result.error.message)
+        }
+        const fileInfo = {
+          url : result.secure_url,
+          public_id : result.public_id,
+          type : result.resource_type,
+          space: result.bytes
+        }
+        const data = await fileCollection.insertOne(fileInfo);
+        res.send(data)
+      })
+    });
+
+    app.get("/fileUpload", async (req, res) => {
+      const result = await fileCollection.find().toArray();
+      res.send(result);
+    });
 
 
 
