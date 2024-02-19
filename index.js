@@ -3,9 +3,11 @@ const app = express();
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const jwt = require("jsonwebtoken");
+const nodemailer = require('nodemailer');
 const multer = require('multer');
 require("dotenv").config();
 const cloudinary = require('cloudinary');
+const fs = require("fs");
           
 
 const port = process.env.PORT || 5000;
@@ -17,6 +19,15 @@ cloudinary.v2.config({
   cloud_name: process.env.CLOUDINARY_NAME,  
   api_key: process.env.CLOUDINARY_API_KEY, 
   api_secret: process.env.CLOUDINARY_API_SECRET 
+});
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: 465,
+  auth: {
+    user: process.env.SMTP_MAIL,
+    pass: process.env.SMTP_PASS,
+  },
 });
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.pyhg6t2.mongodb.net/?retryWrites=true&w=majority`;
@@ -39,8 +50,44 @@ async function run() {
     const brokerCollection = client.db("HouseDB").collection("brokers");
     const clientCollection = client.db("HouseDB").collection("client");
     const fileCollection = client.db("HouseDB").collection("files");
+    const otpCollection = client.db("HouseDB").collection("otp");
 
-    // MiddleWere
+    // Send Email Function -----------------------------------------------------------------------
+    const sendEmail = async (mailInfo) => {
+      const emailFormat = await transporter.sendMail({
+        from: "<mdfahim.muntashir28@gmail.com>",
+        to: mailInfo.to,
+        subject: "OTP Verification",
+        html: `
+        <p>Welcome to <bold>Stellar Dwellings</bold></p>
+        <p>Your OTP code is here:</p>
+        <h1 style="color: blue"><bold>${mailInfo.code}</bold></h1>
+        `
+      });
+
+      transporter.sendMail(emailFormat, (error, info) => {
+        if (error) {
+          return error
+        }
+      });
+    };
+
+    // Generate OTP ------------------------------------------------------------------------------
+    const generateOTP = () => {
+      try {
+        const OTP = Math.floor(1000 * Math.random()*9)
+        return OTP
+      } catch (error) {
+        return error
+      }
+    }
+
+    const otpExpiration = async(filter) => {
+      const otpExpRes = await otpCollection.deleteOne(filter);
+      return otpExpRes;
+    }
+
+    // MiddleWere-----------------------------------------------------------------------------------
     const verifyToken = (req, res, next) => {
       const token = req.headers.authorization;
       if (!token) {
@@ -226,33 +273,96 @@ async function run() {
       },
       filename: function (req, file, cb) {
         const uniqueSuffix = Date.now()
-        cb(null, uniqueSuffix +'-'+ file.originalname)
+        cb(null, uniqueSuffix + '_' + file.originalname)
       }
     })
     const upload = multer({ storage: storage })
 
     
-    app.post("/fileUpload", upload.single('image'), async (req, res) => {
-
-      cloudinary.uploader.upload(req.file.path, async (result) => {
-        if(result.error){
-          res.send(result.error.message)
-        }
-        const fileInfo = {
-          url : result.secure_url,
-          public_id : result.public_id,
-          type : result.resource_type,
-          space: result.bytes
-        }
-        const data = await fileCollection.insertOne(fileInfo);
-        res.send(data)
-      })
+    app.post("/fileUpload", upload.single('video'), async (req, res) => {
+      console.log(req.file.path);
+      try {
+        const result = await cloudinary.uploader.upload(req.file.path, {
+          resource_type: "auto",
+        });
+    console.log(result);
+    fs.unlinkSync(req.file.path)
+        // const fileInfo = {
+        //   url: result.secure_url,
+        //   public_id: result.public_id,
+        //   type: result.resource_type,
+        //   space: result.bytes
+        // };
+    
+        // const data = await fileCollection.insertOne(fileInfo);
+        // res.send(data);
+      } catch (error) {
+        console.error(error);
+        fs.unlinkSync(req.file.path)
+        // res.status(500).send("Error uploading file to Cloudinary");
+      }
     });
 
     app.get("/fileUpload", async (req, res) => {
       const result = await fileCollection.find().toArray();
       res.send(result);
     });
+
+
+    // OTP Generate -------------------------------------------------------------------------------------
+
+    app.post('/sendOTP', async(req, res) => {
+      const {email} = req.body;
+      const filter = {email : email}
+
+      if(filter.email){
+        await otpCollection.deleteMany(filter);
+      } else{
+        return res.send({message: 'Please enter a valid email'})
+      }
+
+      const OTP = generateOTP();
+      const mailInfo = {
+        to: email,
+        code: OTP
+      }
+
+      sendEmail(mailInfo)
+      .then(async () => {
+        const result = await otpCollection.insertOne({email: email, otp: OTP})
+        res.send({beforeOtpMessage: 'OTP was send your email', result})
+        
+        setTimeout(() => {
+          const res = otpExpiration(filter)
+        }, 1 * 60 * 1000);
+      })
+      .catch(() => {
+        res.send({beforeOtpMessage: 'Something went wrong.'})
+      })
+    })
+
+    app.get("/sendOTP", async (req, res) => {
+      const result = await otpCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.post("/getOTP", async (req, res) => {
+      const {email: userEmail, otp: userOtp} = req.body;
+      const filter = {email : userEmail};
+      const result = await otpCollection.findOne(filter);
+
+      if(result === null){
+        return res.send({afterOtpMessage : 'Your OTP has been expired'})
+      } else{
+          if(userEmail != result.email || userOtp != result.otp){
+            return res.send({afterOtpMessage: 'The OTP is not valid'})
+          } else{
+            res.send({afterOtpMessage: "You are welcome"})
+          }
+      }
+    })
+
+    
 
 
 
